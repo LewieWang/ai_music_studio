@@ -93,11 +93,11 @@ class MusicGenerator:
         return name[:60] or "unnamed"
 
 
-class MusicTab(ctk.CTkFrame):
+class MusicTab(ctk.CTkScrollableFrame):
     """音乐生成标签页 UI"""
 
     def __init__(self, parent, api_key_var, log_callback):
-        super().__init__(parent, fg_color="transparent")
+        super().__init__(parent, fg_color="transparent", scrollbar_button_color=COLORS["accent_primary"], scrollbar_button_hover_color=COLORS["accent_secondary"])
         self.api_key_var = api_key_var
         self.log_callback = log_callback
         self.music_generator = MusicGenerator(api_key_var, log_callback)
