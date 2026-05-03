@@ -15,6 +15,34 @@ class MiniMaxAPI:
 
     BASE_URL = "https://api.minimaxi.com/v1"
 
+    # 翻唱风格推荐内置提示词
+    COVER_STYLE_SYSTEM_PROMPT = """你是一位精通全球流行音乐趋势的资深音乐制作人，熟悉当下各大音乐平台（Spotify、Billboard、抖音、网易云等）的热门风格。
+
+## 任务
+根据当前主流市场流行的音乐风格，随机推荐 6 种翻唱风格，涵盖不同语种、情绪和曲风。
+
+## 输出格式（严格 JSON，不要多余文字）
+```json
+{
+  "styles": [
+    {
+      "name": "风格名称（4字以内）",
+      "emoji": "1个代表emoji",
+      "prompt": "直接可用的翻唱风格提示词，10-300字，逗号分隔关键词",
+      "desc": "一句话描述这个风格的特点和适合场景"
+    }
+  ]
+}
+```
+
+## 要求
+- styles 数组固定 6 项
+- prompt 字段必须是中文+英文混合、逗号分隔的风格关键词，可直接用于翻唱API
+- 每种风格差异要大（不同语种/乐器/情绪/年代）
+- 至少包含：1个华语流行向、1个欧美向、1个日韩向、1个独立/另类向、1个复古/怀旧向、1个实验/混搭向
+- 每次调用都要随机组合，不要固定输出
+- 不要输出思考过程，直接输出JSON"""
+
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.headers = {
@@ -37,6 +65,132 @@ class MiniMaxAPI:
         payload = {"mode": mode, "prompt": prompt}
 
         response = requests.post(url, json=payload, headers=self.headers, timeout=60)
+        return response.json()
+
+    def recommend_cover_styles(self) -> dict:
+        """
+        调用 LLM 推荐翻唱风格
+
+        Returns:
+            包含 styles 数组的推荐结果，每项含 name/emoji/prompt/desc
+        """
+        url = f"{self.BASE_URL}/chat/completions"
+        payload = {
+            "model": "MiniMax-M2.5",
+            "messages": [
+                {"role": "system", "content": self.COVER_STYLE_SYSTEM_PROMPT},
+                {"role": "user", "content": "请推荐 6 种当前流行的翻唱风格，要求随机、多样、有创意"}
+            ],
+            "temperature": 0.9,
+            "max_tokens": 1200
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            data = response.json()
+
+            # 提取文本内容
+            content = ""
+            choices = data.get("choices", [])
+            if choices:
+                content = choices[0].get("message", {}).get("content", "")
+
+            if not content:
+                return {"error": "LLM 未返回内容"}
+
+            # 解析 JSON（兼容 markdown 代码块包裹）
+            json_str = content
+            if "```json" in json_str:
+                json_str = json_str.split("```json")[1].split("```")[0]
+            elif "```" in json_str:
+                json_str = json_str.split("```")[1].split("```")[0]
+
+            result = json.loads(json_str.strip())
+            if "styles" in result and isinstance(result["styles"], list):
+                return result
+            return {"error": "返回格式不正确"}
+
+        except json.JSONDecodeError:
+            return {"error": "LLM 返回内容无法解析为 JSON"}
+        except Exception as e:
+            return {"error": f"推荐风格失败: {e}"}
+
+    def cover_preprocess(self, audio_url: str = None, audio_base64: str = None) -> dict:
+        """
+        翻唱前处理 - 提取参考音频特征
+
+        Args:
+            audio_url: 参考音频 URL（与 audio_base64 二选一）
+            audio_base64: Base64 编码的参考音频（与 audio_url 二选一）
+
+        Returns:
+            包含 cover_feature_id, formatted_lyrics, structure_result 等的响应
+        """
+        if not audio_url and not audio_base64:
+            return {"error": "请提供 audio_url 或 audio_base64"}
+        if audio_url and audio_base64:
+            return {"error": "audio_url 和 audio_base64 只能提供一个"}
+
+        url = f"{self.BASE_URL}/music_cover_preprocess"
+        payload = {"model": "music-cover"}
+        if audio_url:
+            payload["audio_url"] = audio_url
+        else:
+            payload["audio_base64"] = audio_base64
+
+        response = requests.post(url, json=payload, headers=self.headers, timeout=300)
+        return response.json()
+
+
+    def generate_cover(self, prompt: str, model: str = "music-cover",
+                       audio_url: str = None, audio_base64: str = None,
+                       cover_feature_id: str = None, lyrics: str = "",
+                       sample_rate: int = 44100, bitrate: int = 256000,
+                       output_format: str = "mp3") -> dict:
+        """
+        翻唱音乐生成
+
+        Args:
+            prompt: 翻唱风格描述（必填，10-300字）
+            model: 模型版本 (music-cover / music-cover-free)
+            audio_url: 参考音频 URL（与 audio_base64/cover_feature_id 互斥）
+            audio_base64: Base64 编码的参考音频
+            cover_feature_id: 翻唱前处理返回的特征 ID（传入时 lyrics 必填）
+            lyrics: 歌词内容
+            sample_rate: 采样率
+            bitrate: 比特率
+            output_format: 输出格式
+
+        Returns:
+            API 响应结果
+        """
+        url = f"{self.BASE_URL}/music_generation"
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "audio_setting": {
+                "sample_rate": sample_rate,
+                "bitrate": bitrate,
+                "format": output_format
+            },
+            "output_format": "url"
+        }
+
+        # 翻唱音频来源（三选一）
+        if cover_feature_id:
+            payload["cover_feature_id"] = cover_feature_id
+            if lyrics:
+                payload["lyrics"] = lyrics
+        elif audio_url:
+            payload["audio_url"] = audio_url
+            if lyrics:
+                payload["lyrics"] = lyrics
+        elif audio_base64:
+            payload["audio_base64"] = audio_base64
+            if lyrics:
+                payload["lyrics"] = lyrics
+
+        response = requests.post(url, headers=self.headers, json=payload, timeout=300)
         return response.json()
 
     def generate_music(self, model: str, prompt: str, lyrics: str = "",
@@ -71,7 +225,7 @@ class MiniMaxAPI:
         if lyrics:
             payload["lyrics"] = lyrics
 
-        response = requests.post(url, headers=self.headers, json=payload, timeout=120)
+        response = requests.post(url, headers=self.headers, json=payload, timeout=300)
         return response.json()
 
     def download_audio(self, url: str, save_dir: Path, filename: str,

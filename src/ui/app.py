@@ -11,6 +11,7 @@ import customtkinter as ctk
 from src.config import COLORS
 from src.ui.components import ModernLogText
 from src.ui.tabs.music_tab import MusicTab
+from src.ui.tabs.cover_tab import CoverTab
 
 
 class AICreativeStudio(ctk.CTk):
@@ -87,14 +88,75 @@ class AICreativeStudio(ctk.CTk):
         content_area.pack(fill="both", expand=True)
 
         # 左侧内容区
-        self.tab_content = ctk.CTkFrame(content_area, fg_color="transparent")
-        self.tab_content.pack(side="left", fill="both", expand=True)
+        left_panel = ctk.CTkFrame(content_area, fg_color="transparent")
+        left_panel.pack(side="left", fill="both", expand=True)
 
-        self.music_tab = MusicTab(self.tab_content, self.api_key_var, self.log)
-        self.music_tab.pack(fill="both", expand=True)
+        # 自定义 Tab 导航栏
+        tab_bar = ctk.CTkFrame(left_panel, fg_color="transparent", height=44)
+        tab_bar.pack(fill="x", pady=(0, 8))
+        tab_bar.pack_propagate(False)
+
+        self.tab_buttons = {}
+        tab_items = [
+            ("music", "🎵 音乐生成", COLORS["accent_primary"]),
+            ("cover", "🎤 翻唱", COLORS["accent_secondary"]),
+        ]
+        for key, label, color in tab_items:
+            btn = ctk.CTkButton(
+                tab_bar, text=label, font=("Segoe UI Semibold", 13),
+                fg_color="transparent", text_color=COLORS["text_muted"],
+                hover_color=COLORS["bg_hover"], corner_radius=8, height=38,
+                anchor="center", width=160,
+                command=lambda k=key: self._switch_tab(k)
+            )
+            btn.pack(side="left", padx=(0, 4))
+            self.tab_buttons[key] = (btn, color)
+
+        # Tab 内容容器
+        self.tab_container = ctk.CTkFrame(left_panel, fg_color="transparent")
+        self.tab_container.pack(fill="both", expand=True)
+
+        # 音乐生成 Tab
+        self.music_tab = MusicTab(self.tab_container, self.api_key_var, self.log)
+
+        # 翻唱 Tab
+        self.cover_tab = CoverTab(self.tab_container, self.api_key_var, self.log)
+        self.cover_tab.save_dir_var = self.music_tab.save_dir_var  # 共享存储目录
+
+        # 默认显示音乐生成
+        self._current_tab = None
+        self._switch_tab("music")
 
         # 右侧日志面板
         self._build_log_panel(content_area)
+
+    def _switch_tab(self, tab_key: str):
+        """切换 Tab 页"""
+        if self._current_tab == tab_key:
+            return
+
+        # 隐藏当前 tab
+        if self._current_tab == "music":
+            self.music_tab.pack_forget()
+        elif self._current_tab == "cover":
+            self.cover_tab.pack_forget()
+
+        # 显示目标 tab
+        if tab_key == "music":
+            self.music_tab.pack(fill="both", expand=True, in_=self.tab_container)
+        elif tab_key == "cover":
+            self.cover_tab.pack(fill="both", expand=True, in_=self.tab_container)
+
+        # 更新按钮样式
+        for key, (btn, color) in self.tab_buttons.items():
+            if key == tab_key:
+                btn.configure(fg_color=color, text_color="#000000" if color == COLORS["accent_primary"] else "#ffffff",
+                              hover_color=color)
+            else:
+                btn.configure(fg_color="transparent", text_color=COLORS["text_muted"],
+                              hover_color=COLORS["bg_hover"])
+
+        self._current_tab = tab_key
 
     def _build_log_panel(self, parent):
         """构建日志面板"""

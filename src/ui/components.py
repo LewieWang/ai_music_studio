@@ -49,10 +49,10 @@ class GlowButton(ctk.CTkButton):
 
     def __init__(self, parent, glow_color=None, **kwargs):
         self.glow_color = glow_color or COLORS["accent_primary"]
+        kwargs.setdefault("font", ("Segoe UI Semibold", 13))
         super().__init__(
             parent,
             corner_radius=8,
-            font=("Segoe UI Semibold", 13),
             **kwargs
         )
         self.configure(
